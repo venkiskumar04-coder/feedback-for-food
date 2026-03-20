@@ -252,6 +252,13 @@
       color: #52606d;
     }
 
+    .data-status {
+      margin-top: 8px;
+      text-align: center;
+      font-size: 12px;
+      color: #7b8794;
+    }
+
     .history {
       margin-top: 28px;
       padding-top: 18px;
@@ -389,6 +396,7 @@
     </form>
 
     <div class="lock-status" id="lockStatus">Feedback history is locked.</div>
+    <div class="data-status" id="dataStatus">History mode: Local browser storage</div>
 
     <div class="admin-panel" id="adminPanel">
       <button type="button" class="btn secondary" id="downloadBtn">Download Excel Sheet</button>
@@ -405,9 +413,29 @@
     </div>
   </div>
 
-  <script>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.7.0/firebase-app.js";
+    import {
+      addDoc,
+      collection,
+      getDocs,
+      getFirestore,
+      orderBy,
+      query,
+      serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/12.7.0/firebase-firestore.js";
+
     const STORAGE_KEY = "arwest-feedback-history";
     const LOCK_PIN = "1234";
+    const FIREBASE_CONFIG = {
+      apiKey: "AIzaSyDFeq3PRqmxn_BTchXaFzIrQXKTqUx1nM8",
+      authDomain: "feed-back-talme.firebaseapp.com",
+      projectId: "feed-back-talme",
+      storageBucket: "feed-back-talme.firebasestorage.app",
+      messagingSenderId: "413910206801",
+      appId: "1:413910206801:web:a8cfb847a90c708409ab70"
+    };
+
     const form = document.getElementById("feedbackForm");
     const historyList = document.getElementById("historyList");
     const ratingInput = document.getElementById("ratingValue");
@@ -415,8 +443,20 @@
     const adminPanel = document.getElementById("adminPanel");
     const lockStatus = document.getElementById("lockStatus");
     const lockButton = document.getElementById("lockBtn");
+    const dataStatus = document.getElementById("dataStatus");
+    const hasFirebaseConfig = Object.values(FIREBASE_CONFIG).every(Boolean);
+
+    let firestoreDb = null;
     let feedbackItems = [];
     let isUnlocked = false;
+
+    if (hasFirebaseConfig) {
+      const app = initializeApp(FIREBASE_CONFIG);
+      firestoreDb = getFirestore(app);
+      dataStatus.textContent = "History mode: Firebase shared database";
+    } else {
+      dataStatus.textContent = "History mode: Local browser storage fallback. Add Firebase config for shared history.";
+    }
 
     function getLocalFeedback() {
       return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
@@ -426,16 +466,50 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
     }
 
-    function loadFeedback() {
-      feedbackItems = getLocalFeedback().slice().reverse();
-      renderHistory();
+    async function loadFeedback() {
+      if (!firestoreDb) {
+        feedbackItems = getLocalFeedback().slice().reverse();
+        renderHistory();
+        return;
+      }
+
+      try {
+        const feedbackQuery = query(collection(firestoreDb, "feedbackHistory"), orderBy("createdAt", "desc"));
+        const snapshot = await getDocs(feedbackQuery);
+        feedbackItems = snapshot.docs.map(function(doc) {
+          const item = doc.data();
+          return {
+            name: item.name || "",
+            employeeId: item.employeeId || "",
+            order: item.order || "",
+            rating: item.rating || "",
+            feedback: item.feedback || "",
+            date: item.date || ""
+          };
+        });
+        renderHistory();
+      } catch (error) {
+        dataStatus.textContent = "History mode: Firebase error. Showing local browser fallback.";
+        feedbackItems = getLocalFeedback().slice().reverse();
+        renderHistory();
+      }
     }
 
-    function persistFeedback(entry) {
-      const items = getLocalFeedback();
-      items.push(entry);
-      saveLocalFeedback(items);
-      feedbackItems = items.slice().reverse();
+    async function persistFeedback(entry) {
+      if (!firestoreDb) {
+        const items = getLocalFeedback();
+        items.push(entry);
+        saveLocalFeedback(items);
+        feedbackItems = items.slice().reverse();
+        return;
+      }
+
+      await addDoc(collection(firestoreDb, "feedbackHistory"), {
+        ...entry,
+        createdAt: serverTimestamp()
+      });
+
+      await loadFeedback();
     }
 
     function setLockState(unlocked) {
@@ -459,7 +533,7 @@
       return labels[value] || "Select your rating";
     }
 
-    function rate(value) {
+    window.rate = function(value) {
       ratingInput.value = value;
       ratingText.textContent = getRatingLabel(value);
 
@@ -467,7 +541,7 @@
         const starValue = Number(star.dataset.value);
         star.classList.toggle("active", starValue <= value);
       });
-    }
+    };
 
     function renderHistory() {
       if (!feedbackItems.length) {
@@ -527,7 +601,7 @@
       URL.revokeObjectURL(url);
     }
 
-    form.addEventListener("submit", function(event) {
+    form.addEventListener("submit", async function(event) {
       event.preventDefault();
 
       if (!ratingInput.value) {
@@ -544,17 +618,21 @@
         date: new Date().toLocaleString()
       };
 
-      persistFeedback(feedbackEntry);
-      renderHistory();
-      form.reset();
-      ratingInput.value = "";
-      ratingText.textContent = "Select your rating";
+      try {
+        await persistFeedback(feedbackEntry);
+        renderHistory();
+        form.reset();
+        ratingInput.value = "";
+        ratingText.textContent = "Select your rating";
 
-      document.querySelectorAll("#ratingStars span").forEach(function(star) {
-        star.classList.remove("active");
-      });
+        document.querySelectorAll("#ratingStars span").forEach(function(star) {
+          star.classList.remove("active");
+        });
 
-      alert("Thank you! Your feedback has been saved in local storage.");
+        alert("Thank you! Your feedback has been saved.");
+      } catch (error) {
+        alert("Feedback could not be saved. Please check your Firebase setup.");
+      }
     });
 
     lockButton.addEventListener("click", function() {
