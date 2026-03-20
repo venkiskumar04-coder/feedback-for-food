@@ -69,7 +69,6 @@
       font-weight: 800;
       letter-spacing: 0.03em;
       color: #2d4aa0;
-      text-transform: none;
       line-height: 1.1;
     }
 
@@ -82,12 +81,6 @@
       color: #8a6a16;
     }
 
-    .headline {
-      text-align: center;
-      margin: 0 auto 26px;
-      max-width: 360px;
-    }
-
     .sub-brand {
       text-align: center;
       margin: -4px 0 18px;
@@ -98,6 +91,12 @@
       max-width: 100%;
       height: auto;
       display: inline-block;
+    }
+
+    .headline {
+      text-align: center;
+      margin: 0 auto 26px;
+      max-width: 360px;
     }
 
     h1, h2 {
@@ -280,6 +279,13 @@
       font-size: 14px;
     }
 
+    .footer {
+      text-align: center;
+      font-size: 12px;
+      margin-top: 20px;
+      color: #7b8794;
+    }
+
     @media (max-width: 640px) {
       .container {
         margin: 18px;
@@ -313,13 +319,6 @@
       h1 {
         font-size: 30px;
       }
-    }
-
-    .footer {
-      text-align: center;
-      font-size: 12px;
-      margin-top: 20px;
-      color: #7b8794;
     }
   </style>
 </head>
@@ -415,14 +414,28 @@
     const ratingText = document.getElementById("ratingText");
     const adminPanel = document.getElementById("adminPanel");
     const lockStatus = document.getElementById("lockStatus");
+    const lockButton = document.getElementById("lockBtn");
+    let feedbackItems = [];
     let isUnlocked = false;
 
-    function getStoredFeedback() {
+    function getLocalFeedback() {
       return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
     }
 
-    function saveStoredFeedback(items) {
+    function saveLocalFeedback(items) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    }
+
+    function loadFeedback() {
+      feedbackItems = getLocalFeedback().slice().reverse();
+      renderHistory();
+    }
+
+    function persistFeedback(entry) {
+      const items = getLocalFeedback();
+      items.push(entry);
+      saveLocalFeedback(items);
+      feedbackItems = items.slice().reverse();
     }
 
     function setLockState(unlocked) {
@@ -431,7 +444,7 @@
       lockStatus.textContent = unlocked
         ? "Feedback history is unlocked."
         : "Feedback history is locked.";
-      document.getElementById("lockBtn").textContent = unlocked ? "🔓" : "🔒";
+      lockButton.textContent = unlocked ? "🔓" : "🔒";
     }
 
     function getRatingLabel(value) {
@@ -457,14 +470,12 @@
     }
 
     function renderHistory() {
-      const items = getStoredFeedback();
-
-      if (!items.length) {
+      if (!feedbackItems.length) {
         historyList.innerHTML = '<div class="history-empty">No feedback submitted yet.</div>';
         return;
       }
 
-      historyList.innerHTML = items.slice().reverse().map(function(item) {
+      historyList.innerHTML = feedbackItems.map(function(item) {
         return `
           <div class="history-item">
             <strong>${item.name}</strong><br>
@@ -488,16 +499,14 @@
         return;
       }
 
-      const items = getStoredFeedback();
-
-      if (!items.length) {
+      if (!feedbackItems.length) {
         alert("No feedback history found to download.");
         return;
       }
 
       const rows = [
         ["Name", "Employee ID", "Order", "Rating", "Feedback", "Date"],
-        ...items.map(function(item) {
+        ...feedbackItems.map(function(item) {
           return [item.name, item.employeeId || "", item.order, item.rating, item.feedback, item.date];
         })
       ];
@@ -535,9 +544,7 @@
         date: new Date().toLocaleString()
       };
 
-      const items = getStoredFeedback();
-      items.push(feedbackEntry);
-      saveStoredFeedback(items);
+      persistFeedback(feedbackEntry);
       renderHistory();
       form.reset();
       ratingInput.value = "";
@@ -547,10 +554,10 @@
         star.classList.remove("active");
       });
 
-      alert("Thank you! Your feedback has been saved.");
+      alert("Thank you! Your feedback has been saved in local storage.");
     });
 
-    document.getElementById("lockBtn").addEventListener("click", function() {
+    lockButton.addEventListener("click", function() {
       if (isUnlocked) {
         setLockState(false);
         return;
@@ -563,7 +570,7 @@
 
       if (/^\d{4}$/.test(enteredPin) && enteredPin === LOCK_PIN) {
         setLockState(true);
-        renderHistory();
+        loadFeedback();
       } else {
         alert("Wrong lock. Please enter the correct 4-digit code.");
       }
@@ -572,6 +579,7 @@
     document.getElementById("downloadBtn").addEventListener("click", downloadCsv);
 
     setLockState(false);
+    loadFeedback();
   </script>
 </body>
 </html>
